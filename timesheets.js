@@ -102,13 +102,10 @@ function doSaveSession() {
   
   var totalHours = sessions[employee].totalHours;
   
-  var lastRowLogs = timeLogs.getLastRow();
-  var sessionID = 1;
-  if (lastRowLogs > 1) {
-    sessionID = timeLogs.getRange(lastRowLogs, 6).getValue() + 1;
-  }
+  // Generate random 4-digit Session ID
+  var sessionID = Math.floor(1000 + Math.random() * 9000);
   
-  var newRowLogs = lastRowLogs + 1;
+  var newRowLogs = timeLogs.getLastRow() + 1;
   timeLogs.getRange(newRowLogs, 1).setValue(employee);
   timeLogs.getRange(newRowLogs, 2).setValue(dashboard.getRange("B2").getValue());
   timeLogs.getRange(newRowLogs, 3).setValue(new Date(sessions[employee].clockIn));
@@ -116,17 +113,23 @@ function doSaveSession() {
   timeLogs.getRange(newRowLogs, 5).setValue(totalHours);
   timeLogs.getRange(newRowLogs, 6).setValue(sessionID);
   
+  // Record tasks and associate with employee and session ID
   var lastRowTasks = tasks.getLastRow();
   for (var i = 9; i <= 13; i++) {
     var taskDesc = dashboard.getRange(i, 1).getValue();
     if (taskDesc !== "") {
       var newRowTasks = lastRowTasks + 1;
-      tasks.getRange(newRowTasks, 1).setValue(sessionID);
-      tasks.getRange(newRowTasks, 2).setValue(taskDesc);
-      tasks.getRange(newRowTasks, 3).setValue(dashboard.getRange(i, 2).getValue());
+      tasks.getRange(newRowTasks, 1).setValue(employee);
+      tasks.getRange(newRowTasks, 2).setValue(sessionID);
+      tasks.getRange(newRowTasks, 3).setValue(taskDesc);
+      tasks.getRange(newRowTasks, 4).setValue(dashboard.getRange(i, 2).getValue());
       lastRowTasks = newRowTasks;
     }
   }
+  
+  // Log action in AuditLog
+  var email = Session.getActiveUser().getEmail() || "External User";
+  logAction("saveSession", "Success", email, "Session saved with ID: " + sessionID + " for " + employee, employee, sessionID);
   
   delete sessions[employee];
   setSessionData(sessions);
@@ -134,24 +137,24 @@ function doSaveSession() {
   dashboard.getRange("B3:B5").clearContent();
   dashboard.getRange("A9:B13").clearContent();
   
-  Browser.msgBox("Session saved successfully!");
+  Browser.msgBox("Session saved successfully! Session ID: " + sessionID);
 }
 
 /***************************************************
  * Audit Log Utility
  ***************************************************/
-function logAction(action, status, userEmail, message) {
+function logAction(action, status, userEmail, message, employeeName, sessionID) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var auditSheet = ss.getSheetByName("AuditLog");
   
   if (!auditSheet) {
     auditSheet = ss.insertSheet("AuditLog");
-    auditSheet.appendRow(["Timestamp", "User Email", "Action", "Status", "Message"]);
+    auditSheet.appendRow(["Timestamp", "User Email", "Employee", "Action", "Status", "Session ID", "Message"]);
     auditSheet.hideSheet();
   }
   
   var timestamp = new Date();
-  auditSheet.appendRow([timestamp, userEmail, action, status, message]);
+  auditSheet.appendRow([timestamp, userEmail, employeeName || "N/A", action, status, sessionID || "N/A", message]);
 }
 
 /***************************************************
@@ -167,6 +170,9 @@ function doPost(e) {
   var status = "Success";
   var message = "";
   var email = Session.getActiveUser().getEmail() || "External User";
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dashboard = ss.getSheetByName("Dashboard");
+  var employee = dashboard.getRange("B1").getValue() || "Unknown Employee";
   
   try {
     if (action === "clockIn") {
@@ -187,14 +193,15 @@ function doPost(e) {
     message = err.message;
   }
   
-  logAction(action, status, email, message);
+  logAction(action, status, email, message, employee, "");
   result = status + ": " + message;
   return ContentService.createTextOutput(result);
 }
+
 /***************************************************
  * Dashboard Button Triggers (used by users)
  ***************************************************/
-var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx0Qj0zDNq3aBqxYC0ZMLdMmT6dz3B0yVKxGlwDkeFgWbGDTKF08rOcHQKhEZJHv6vG/exec"; // <-- Replace this
+var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzVHLzYFYWkukCjN1uAtrVRm-RmaY3N4hxSWtE0ShrZwDXjDw9f-09aB9XWHqL_phK1/exec"; // <-- Replace this
 
 function triggerClockIn() {
   var payload = { action: "clockIn" };
